@@ -17,9 +17,13 @@
 
 ## 처음 한 번만 하는 설정
 
-### 1) Supabase 테이블 만들기
+### 1) Supabase 테이블 만들기 — **이미 적용 완료**
 
-Supabase → SQL Editor 에서 아래 순서로 실행합니다.
+이 프로젝트는 기존 **`slbs-d2c-dashboard`** Supabase 프로젝트를 함께 사용합니다.
+(무료 플랜은 프로젝트를 2개까지만 만들 수 있어 새로 만들지 않았습니다.
+매출 테이블과 이름이 겹치지 않고, 매출 테이블은 이 대시보드 키로 조회되지 않습니다.)
+
+아래 SQL은 이미 실행되어 있습니다. 나중에 다른 프로젝트로 옮길 때 다시 쓰면 됩니다.
 
 1. `db/schema.sql` — 테이블 4개 + 읽기전용 RLS 정책 + 기본 키워드 1개
 2. `db/seed_character_dict.sql` — 캐릭터 사전 48개 토큰
@@ -33,12 +37,15 @@ Supabase → SQL Editor 에서 아래 순서로 실행합니다.
 3. Python이 없으면 https://www.python.org 에서 설치할 때
    "Add python.exe to PATH" 를 반드시 체크합니다.
 
-### 3) 대시보드에 키 넣기 (Vercel)
+### 3) Vercel 연결 (처음 한 번)
 
-`config.js` 를 열어 `SUPABASE_URL` 과 **anon(public)** 키를 넣고 커밋합니다.
+`config.js` 에는 Supabase 주소와 anon(public) 키가 이미 들어 있습니다.
 anon 키는 공개용이라 깃에 올라가도 괜찮습니다.
-Vercel은 이 레포를 연결해 두면 `git push` 할 때마다 자동 배포합니다.
-빌드 설정은 필요 없습니다(정적 사이트, 루트 `index.html`).
+
+Vercel → Add New… → Project → 이 레포(`slbs-market-crawler`) Import →
+Framework Preset은 **Other**, 빌드 명령은 비워 둔 채 Deploy 합니다.
+정적 사이트라 빌드가 필요 없습니다(루트 `index.html`).
+한 번 연결해 두면 그 다음부터는 `git push` 할 때마다 자동 배포됩니다.
 
 ## 수집 키워드 바꾸기
 

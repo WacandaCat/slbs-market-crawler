@@ -9,7 +9,7 @@ SLBS 캐릭터 마켓 레이더 - 네이버쇼핑 수집기
  2. 키워드별로 네이버쇼핑 검색 결과를 페이지 순회하며 수집 (리뷰순)
  3. 별점/리뷰/구매/찜/등록일 파싱 → 판매개월수·point 계산 → 캐릭터 매칭
  4. 결과를 Supabase(crawl_runs, crawl_items)에 업로드
- 5. 백업용 엑셀도 로컬에 저장 (output/ 폴더)
+ 5. 백업용 CSV도 로컬에 저장 (output/ 폴더, 엑셀에서 바로 열림)
 
 기존 노트북 대비 수정 사항
  - pagingIndex 고정 버그 수정 (페이지가 실제로 넘어감)
@@ -17,8 +17,12 @@ SLBS 캐릭터 마켓 레이더 - 네이버쇼핑 수집기
  - 구매/찜 수의 쉼표(1,234) 파싱 처리
  - 등록일 없는 상품 안전 처리, 판매개월수 최소 1 (0 나눗셈 방지)
  - 캐릭터 매칭을 긴 단어부터 시도 (예: '곰돌이푸'가 '곰'보다 먼저 매칭)
+ - pandas/numpy/openpyxl 의존성 제거. Windows 앱 제어 정책이 이 패키지들의
+   컴파일된 DLL을 차단하는 경우가 있어, 백업을 표준 csv 모듈로 저장한다.
 """
 
+import csv
+import os
 import re
 import sys
 import time
@@ -26,11 +30,8 @@ from datetime import datetime, date
 from urllib.parse import quote
 
 import requests
-import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 
 try:
     import config
@@ -55,6 +56,11 @@ SB_HEADERS = {
     "Authorization": f"Bearer {config.SUPABASE_SERVICE_KEY}",
     "Content-Type": "application/json",
 }
+
+FIELDS = [
+    "crawled_at", "keyword", "product_name", "rating", "reviews", "purchases",
+    "wishes", "reg_date", "months_on_sale", "point", "character_name",
+]
 
 
 # ------------------------------------------------------------
@@ -147,6 +153,29 @@ def match_character(product_name, char_dict_sorted):
 
 
 # ------------------------------------------------------------
+# 크롬 실행
+# ------------------------------------------------------------
+def make_driver():
+    """
+    셀레니움 4는 크롬드라이버를 스스로 내려받는다(Selenium Manager).
+    실패할 때만 webdriver-manager로 한 번 더 시도한다.
+    """
+    try:
+        return webdriver.Chrome()
+    except Exception as e:
+        print(f"[안내] 크롬 자동 실행 1차 시도 실패: {type(e).__name__}")
+        try:
+            from selenium.webdriver.chrome.service import Service
+            from webdriver_manager.chrome import ChromeDriverManager
+            return webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+        except Exception as e2:
+            print("\n[오류] 크롬을 실행하지 못했습니다.")
+            print(f"       원인: {type(e2).__name__}: {e2}")
+            print("       크롬 브라우저가 설치되어 있는지 확인해 주세요.")
+            sys.exit(1)
+
+
+# ------------------------------------------------------------
 # 크롤링
 # ------------------------------------------------------------
 def crawl_keyword(driver, keyword, target_count):
@@ -227,6 +256,17 @@ def build_rows(keyword, raw_items, char_dict_sorted, run_id):
     return rows
 
 
+def save_backup(rows):
+    """엑셀에서 바로 열리는 CSV로 저장 (BOM 포함 UTF-8이라 한글이 깨지지 않음)"""
+    os.makedirs("output", exist_ok=True)
+    path = f"output/crawl_{datetime.now():%Y%m%d_%H%M}.csv"
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
+
+
 # ------------------------------------------------------------
 # 메인
 # ------------------------------------------------------------
@@ -245,11 +285,11 @@ def main():
                     returning=True)[0]
     run_id = run["id"]
 
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+    driver = make_driver()
     all_rows = []
     try:
         for keyword in keywords:
-            print(f"\n▶ '{keyword}' 수집 중...")
+            print(f"\n>> '{keyword}' 수집 중...")
             raw = crawl_keyword(driver, keyword, ITEMS_PER_KEYWORD)
             rows = build_rows(keyword, raw, char_dict_sorted, run_id)
             all_rows.extend(rows)
@@ -266,18 +306,13 @@ def main():
         sb_insert("crawl_items", all_rows[i:i + 500])
     sb_update("crawl_runs", {"id": f"eq.{run_id}"}, {"item_count": len(all_rows)})
 
-    # 로컬 백업 엑셀
-    import os
-    os.makedirs("output", exist_ok=True)
-    df = pd.DataFrame(all_rows).drop(columns=["run_id"])
-    backup = f"output/crawl_{datetime.now():%Y%m%d_%H%M}.xlsx"
-    df.to_excel(backup, index=False)
+    backup = save_backup(all_rows)
 
-    classified = (df["character_name"] != "기타").sum()
+    classified = sum(1 for r in all_rows if r["character_name"] != "기타")
     print("\n" + "=" * 50)
     print("수집 완료")
-    print(f"  - 총 상품 수: {len(df):,}건")
-    print(f"  - 캐릭터 분류: {classified:,}건 / 미분류 {len(df) - classified:,}건")
+    print(f"  - 총 상품 수: {len(all_rows):,}건")
+    print(f"  - 캐릭터 분류: {classified:,}건 / 미분류 {len(all_rows) - classified:,}건")
     print(f"  - 로컬 백업: {backup}")
     print("  - 대시보드에서 바로 확인할 수 있습니다.")
     print("=" * 50)

@@ -126,6 +126,14 @@
       <label for="runSelect">수집 회차</label>
       <select id="runSelect"></select>
     </div>
+    <div class="field" id="deviceField" hidden>
+      <label for="deviceSelect">기종</label>
+      <select id="deviceSelect"></select>
+    </div>
+    <div class="field" id="categoryField" hidden>
+      <label for="categorySelect">카테고리</label>
+      <select id="categorySelect"></select>
+    </div>
     <div class="field">
       <label for="kwSelect">키워드</label>
       <select id="kwSelect"></select>
@@ -248,7 +256,7 @@
     function next(from) {
       return api("crawl_items", {
         run_id: "eq." + runId,
-        select: "keyword,product_name,rating,reviews,purchases,wishes,reg_date,months_on_sale,point,character_name",
+        select: "keyword,device,category,product_name,rating,reviews,purchases,wishes,reg_date,months_on_sale,point,character_name,product_url",
         order: "id.asc"
       }, { Range: from + "-" + (from + FETCH_CHUNK - 1) }).then(function (rows) {
         out = out.concat(rows);
@@ -271,6 +279,8 @@
   var COLUMNS = [
     { key: "product_name",  label: "상품명",     type: "text" },
     { key: "character_name",label: "캐릭터",     type: "chip" },
+    { key: "device",        label: "기종",       type: "text" },
+    { key: "category",      label: "카테고리",   type: "text" },
     { key: "keyword",       label: "키워드",     type: "text" },
     { key: "point",         label: "판매지수",   type: "dec2" },
     { key: "reviews",       label: "리뷰",       type: "num" },
@@ -383,10 +393,59 @@
     renderTiles(); renderRank(); renderEtc(); renderTable();
   }
 
-  function applyKeyword() {
-    var kw = el("kwSelect").value;
-    state.view = kw === "__all__" ? state.items
-      : state.items.filter(function (r) { return r.keyword === kw; });
+  // 기종 → 카테고리 → 키워드 순으로 좁혀 나간다.
+  // 앞 단계 선택에 따라 뒤 단계 선택지가 다시 채워진다.
+  function distinct(rows, key) {
+    var seen = [];
+    rows.forEach(function (r) {
+      var v = r[key];
+      if (v !== null && v !== undefined && v !== "" && seen.indexOf(v) === -1) seen.push(v);
+    });
+    return seen.sort(function (a, b) { return String(a).localeCompare(String(b), "ko"); });
+  }
+
+  function fillSelect(id, values, rows, key, keepValue) {
+    var counts = {};
+    values.forEach(function (v) {
+      counts[v] = rows.filter(function (r) { return r[key] === v; }).length;
+    });
+    var sel = el(id);
+    sel.innerHTML = '<option value="__all__">전체 (' + num(rows.length) + '건)</option>' +
+      values.map(function (v) {
+        return '<option value="' + esc(v) + '">' + esc(v) + " (" + num(counts[v]) + "건)</option>";
+      }).join("");
+    if (keepValue && values.indexOf(keepValue) !== -1) sel.value = keepValue;
+  }
+
+  function applyFilters(changed) {
+    var dev = el("deviceSelect").value || "__all__";
+    var cat = el("categorySelect").value || "__all__";
+    var kw = el("kwSelect").value || "__all__";
+
+    // 상위 단계를 바꾸면 하위 선택은 초기화한다
+    if (changed === "device") { cat = "__all__"; kw = "__all__"; }
+    if (changed === "category") { kw = "__all__"; }
+
+    var afterDevice = dev === "__all__" ? state.items
+      : state.items.filter(function (r) { return r.device === dev; });
+    var afterCategory = cat === "__all__" ? afterDevice
+      : afterDevice.filter(function (r) { return r.category === cat; });
+    var afterKeyword = kw === "__all__" ? afterCategory
+      : afterCategory.filter(function (r) { return r.keyword === kw; });
+
+    // 선택지 다시 채우기 (기종은 전체 기준, 나머지는 상위 선택 반영)
+    var devices = distinct(state.items, "device");
+    el("deviceField").hidden = devices.length < 2;
+    fillSelect("deviceSelect", devices, state.items, "device", dev === "__all__" ? null : dev);
+
+    var cats = distinct(afterDevice, "category");
+    el("categoryField").hidden = cats.length < 2;
+    fillSelect("categorySelect", cats, afterDevice, "category", cat === "__all__" ? null : cat);
+
+    fillSelect("kwSelect", distinct(afterCategory, "keyword"), afterCategory, "keyword",
+               kw === "__all__" ? null : kw);
+
+    state.view = afterKeyword;
     state.shown = PAGE_SIZE;
     renderAll();
   }
@@ -409,22 +468,16 @@
     fetchAllItems(runId).then(function (items) {
       state.items = items;
 
-      var kws = [];
-      items.forEach(function (r) { if (kws.indexOf(r.keyword) === -1) kws.push(r.keyword); });
-      kws.sort(function (a, b) { return a.localeCompare(b, "ko"); });
-      el("kwSelect").innerHTML =
-        '<option value="__all__">전체 (' + num(items.length) + '건)</option>' +
-        kws.map(function (k) {
-          var c = items.filter(function (r) { return r.keyword === k; }).length;
-          return '<option value="' + esc(k) + '">' + esc(k) + " (" + num(c) + "건)</option>";
-        }).join("");
+      el("deviceSelect").value = "__all__";
+      el("categorySelect").value = "__all__";
+      el("kwSelect").value = "__all__";
 
       el("runMeta").innerHTML =
         "수집 시각 " + esc(fmtRunAt(run.run_at)) + "<br>키워드 " +
         esc((run.keywords || []).join(", "));
 
       show("dash");
-      applyKeyword();
+      applyFilters("run");
     }).catch(function (e) { fail(e.message); });
   }
 
@@ -449,7 +502,9 @@
       renderTable();
     });
 
-    el("kwSelect").addEventListener("change", applyKeyword);
+    el("deviceSelect").addEventListener("change", function () { applyFilters("device"); });
+    el("categorySelect").addEventListener("change", function () { applyFilters("category"); });
+    el("kwSelect").addEventListener("change", function () { applyFilters("keyword"); });
 
     api("crawl_runs", { select: "id,run_at,keywords,item_count", order: "run_at.desc", limit: 50 })
       .then(function (runs) {

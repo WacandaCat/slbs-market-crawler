@@ -17,7 +17,11 @@ create table if not exists crawl_items (
   run_id uuid not null references crawl_runs(id) on delete cascade,
   crawled_at date not null default current_date,
   keyword text not null,
+  device text,                   -- '아이폰17' 등. 공용 카테고리면 null
+  category text,                 -- '케이스', '맥세이프지갑', '그립톡' 등
   product_name text not null,
+  product_url text,              -- 회차 간 동일 상품 매칭용
+  product_id text,               -- 네이버 상품 ID (링크에서 추출)
   rating numeric,
   reviews int,
   purchases int,
@@ -31,6 +35,9 @@ create table if not exists crawl_items (
 create index if not exists idx_items_run on crawl_items (run_id);
 create index if not exists idx_items_keyword on crawl_items (keyword);
 create index if not exists idx_items_character on crawl_items (character_name);
+create index if not exists idx_items_device on crawl_items (device);
+create index if not exists idx_items_category on crawl_items (category);
+create index if not exists idx_items_pid on crawl_items (product_id);
 
 -- 3) 캐릭터 사전 (기존 character_list.xlsx 대체)
 create table if not exists character_dict (
@@ -43,6 +50,8 @@ create table if not exists character_dict (
 create table if not exists crawl_keywords (
   id bigint generated always as identity primary key,
   keyword text unique not null,
+  device text,                   -- 이 키워드가 겨냥하는 기종. 공용이면 null
+  category text,                 -- 이 키워드가 겨냥하는 카테고리
   is_active boolean not null default true,
   sort_order int not null default 0
 );
@@ -70,6 +79,6 @@ create policy "anon read keywords" on crawl_keywords for select using (true);
 -- ============================================================
 -- 기본 수집 키워드 (필요시 Supabase 테이블 편집기에서 추가/수정)
 -- ============================================================
-insert into crawl_keywords (keyword, sort_order) values
-  ('캐릭터 케이스', 1)
+insert into crawl_keywords (keyword, device, category, sort_order) values
+  ('캐릭터 케이스', null, '케이스', 1)
 on conflict (keyword) do nothing;

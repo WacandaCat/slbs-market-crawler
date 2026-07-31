@@ -19,10 +19,14 @@ SLBS 캐릭터 마켓 레이더 - 네이버쇼핑 수집기
  - 캐릭터 매칭을 긴 단어부터 시도 (예: '곰돌이푸'가 '곰'보다 먼저 매칭)
  - pandas/numpy/openpyxl 의존성 제거. Windows 앱 제어 정책이 이 패키지들의
    컴파일된 DLL을 차단하는 경우가 있어, 백업을 표준 csv 모듈로 저장한다.
+ - 네이버 차단 페이지를 감지하면 즉시 중단한다. 계속 요청하면 차단이 길어진다.
+ - 페이지 간격을 랜덤하게 두어 요청 속도를 낮춘다.
+ - 수집 회차 기록은 실제로 상품을 모은 뒤에 만든다 (빈 회차가 남지 않음)
 """
 
 import csv
 import os
+import random
 import re
 import sys
 import time
@@ -46,9 +50,18 @@ except ImportError:
 # ------------------------------------------------------------
 ITEMS_PER_KEYWORD = getattr(config, "ITEMS_PER_KEYWORD", 500)  # 키워드당 목표 수집 개수
 ITEMS_PER_PAGE = 20
-SCROLL_DEPTH = 3          # 페이지당 스크롤 횟수 (지연 로딩 대응)
-PAGE_WAIT = 5             # 페이지 로드 대기(초)
-SCROLL_WAIT = 3           # 스크롤 후 대기(초)
+SCROLL_DEPTH = 3                                    # 페이지당 스크롤 횟수 (지연 로딩 대응)
+PAGE_WAIT = getattr(config, "PAGE_WAIT", (6, 11))   # 페이지 로드 후 대기(초) 최소~최대
+SCROLL_WAIT = (2, 4)                                # 스크롤 후 대기(초) 최소~최대
+BETWEEN_PAGES = getattr(config, "BETWEEN_PAGES", (4, 9))  # 다음 페이지로 넘어가기 전 추가 대기
+
+# 네이버가 차단 페이지를 내려줄 때 나타나는 문구
+BLOCK_MARKERS = (
+    "접속이 일시적으로 제한",
+    "비정상적인 접근",
+    "쇼핑 서비스 접속이",
+    "일시적으로 제한되었습니다",
+)
 
 SB_URL = config.SUPABASE_URL.rstrip("/")
 SB_HEADERS = {
@@ -61,6 +74,14 @@ FIELDS = [
     "crawled_at", "keyword", "product_name", "rating", "reviews", "purchases",
     "wishes", "reg_date", "months_on_sale", "point", "character_name",
 ]
+
+
+class NaverBlocked(Exception):
+    """네이버가 접속을 제한했을 때"""
+
+
+def nap(span):
+    time.sleep(random.uniform(*span))
 
 
 # ------------------------------------------------------------
@@ -175,6 +196,19 @@ def make_driver():
             sys.exit(1)
 
 
+def page_text(driver):
+    try:
+        return driver.find_element(By.TAG_NAME, "body").text
+    except Exception:
+        return ""
+
+
+def check_blocked(driver):
+    text = page_text(driver)
+    if any(m in text for m in BLOCK_MARKERS):
+        raise NaverBlocked(text.strip()[:200])
+
+
 # ------------------------------------------------------------
 # 크롤링
 # ------------------------------------------------------------
@@ -191,13 +225,17 @@ def crawl_keyword(driver, keyword, target_count):
             "&productSet=total&sort=review&viewType=list"
         )
         driver.get(url)
-        time.sleep(PAGE_WAIT)
+        nap(PAGE_WAIT)
+
+        # 차단 페이지면 더 두드리지 말고 즉시 중단
+        check_blocked(driver)
 
         for _ in range(SCROLL_DEPTH):
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(SCROLL_WAIT)
+            nap(SCROLL_WAIT)
 
         page_found = 0
+        misses = 0
         for i in range(1, ITEMS_PER_PAGE + 1):
             sel = (
                 "#content > div.style_content__xWg5l > div.basicList_list_basis__uNBZx"
@@ -208,8 +246,8 @@ def crawl_keyword(driver, keyword, target_count):
                     By.CSS_SELECTOR, f"{sel} > div.product_title__Mmw2K").text
                 amt = driver.find_element(
                     By.CSS_SELECTOR, f"{sel} > div.product_etc_box__ElfVA").text
-            except Exception as e:
-                print(f"  - {page}페이지 {i}번 항목 읽기 실패: {type(e).__name__}")
+            except Exception:
+                misses += 1
                 continue
 
             if not title or title in seen_names:
@@ -218,14 +256,24 @@ def crawl_keyword(driver, keyword, target_count):
             collected.append((title, amt))
             page_found += 1
 
+        if misses:
+            print(f"  [{keyword}] {page}페이지: {misses}개 항목을 읽지 못했습니다.")
         print(f"  [{keyword}] {page}/{total_pages}페이지: 신규 {page_found}개 "
               f"(누적 {len(collected)}개)")
 
+        # 첫 페이지부터 하나도 못 읽으면 차단이 아니라 구조 변경일 수 있다
+        if page == 1 and page_found == 0:
+            print(f"\n  [{keyword}] 첫 페이지에서 상품을 하나도 찾지 못했습니다.")
+            print("  네이버 페이지 구조가 바뀌었을 수 있습니다.")
+            print("  check_page.bat 을 실행해 구조를 조사해 주세요.")
+            break
         if page_found == 0 and page > 1:
             print(f"  [{keyword}] 더 이상 새 상품이 없어 조기 종료합니다.")
             break
         if len(collected) >= target_count:
             break
+
+        nap(BETWEEN_PAGES)
 
     return collected
 
@@ -267,6 +315,21 @@ def save_backup(rows):
     return path
 
 
+def print_blocked_notice(detail):
+    print("\n" + "=" * 50)
+    print("네이버가 접속을 일시적으로 제한했습니다.")
+    print("=" * 50)
+    print("수집을 중단합니다. 계속 시도하면 제한이 더 길어집니다.\n")
+    print("  - 보통 몇 시간 뒤 자동으로 풀립니다. 시간을 두고 다시 실행해 주세요.")
+    print("  - 다시 할 때는 config.py 의 ITEMS_PER_KEYWORD 를 100~200 정도로")
+    print("    줄이면 요청이 적어져 제한에 걸릴 확률이 낮아집니다.")
+    print("  - VPN을 쓰고 계시면 끄고 시도해 보세요.\n")
+    if detail:
+        print("네이버 안내 문구:")
+        print("  " + detail.replace("\n", "\n  "))
+    print("=" * 50)
+
+
 # ------------------------------------------------------------
 # 메인
 # ------------------------------------------------------------
@@ -280,28 +343,48 @@ def main():
     print(f"수집 키워드 {len(keywords)}개: {keywords}")
     print(f"캐릭터 사전 {len(char_dict_sorted)}개 토큰 로드 완료\n")
 
-    # 실행 기록 생성
-    run = sb_insert("crawl_runs", {"keywords": keywords, "item_count": 0},
-                    returning=True)[0]
-    run_id = run["id"]
-
     driver = make_driver()
-    all_rows = []
+    harvest = []          # (키워드, 원본항목들)
+    blocked = None
     try:
         for keyword in keywords:
             print(f"\n>> '{keyword}' 수집 중...")
-            raw = crawl_keyword(driver, keyword, ITEMS_PER_KEYWORD)
-            rows = build_rows(keyword, raw, char_dict_sorted, run_id)
-            all_rows.extend(rows)
+            try:
+                raw = crawl_keyword(driver, keyword, ITEMS_PER_KEYWORD)
+            except NaverBlocked as e:
+                blocked = str(e)
+                break
+            harvest.append((keyword, raw))
     finally:
         driver.quit()
 
-    if not all_rows:
-        print("\n[경고] 수집된 상품이 없습니다. 네이버 페이지 구조가 바뀌었을 수 있습니다.")
+    total_raw = sum(len(raw) for _, raw in harvest)
+
+    if blocked and total_raw == 0:
+        print_blocked_notice(blocked)
         sys.exit(1)
 
-    # Supabase 업로드 (500건씩 분할)
-    print(f"\n총 {len(all_rows)}건 업로드 중...")
+    if total_raw == 0:
+        print("\n[경고] 수집된 상품이 없습니다.")
+        print("       check_page.bat 을 실행해 페이지 구조를 조사해 주세요.")
+        print("       (수집 회차는 기록하지 않았습니다)")
+        sys.exit(1)
+
+    if blocked:
+        print("\n[안내] 중간에 접속 제한이 걸려 일부만 수집했습니다.")
+        print(f"       지금까지 모은 {total_raw:,}건은 정상 저장합니다.")
+
+    # 실제로 모은 게 있을 때만 수집 회차를 기록한다
+    run = sb_insert("crawl_runs",
+                    {"keywords": [k for k, _ in harvest], "item_count": 0},
+                    returning=True)[0]
+    run_id = run["id"]
+
+    all_rows = []
+    for keyword, raw in harvest:
+        all_rows.extend(build_rows(keyword, raw, char_dict_sorted, run_id))
+
+    print(f"\n총 {len(all_rows):,}건 업로드 중...")
     for i in range(0, len(all_rows), 500):
         sb_insert("crawl_items", all_rows[i:i + 500])
     sb_update("crawl_runs", {"id": f"eq.{run_id}"}, {"item_count": len(all_rows)})
@@ -316,6 +399,9 @@ def main():
     print(f"  - 로컬 백업: {backup}")
     print("  - 대시보드에서 바로 확인할 수 있습니다.")
     print("=" * 50)
+
+    if blocked:
+        print_blocked_notice(blocked)
 
 
 if __name__ == "__main__":

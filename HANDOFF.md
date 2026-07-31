@@ -72,5 +72,34 @@
   - `config.js` 에 해당 프로젝트 URL과 anon 키 입력 후 커밋
 - **3. 크롤러 설정** — Danny PC에서 진행 필요.
   `crawler/config.py` 에 위 프로젝트의 **service_role** 키 입력 (Supabase 대시보드에서 복사).
-- **4. Vercel** — Danny가 브라우저에서 레포를 Import 해야 함(비공개 레포 권한 승인 필요).
+- **4. Vercel** — Danny가 브라우저에서 레포를 Import 해야 함.
   이후에는 `git push` 만으로 자동 배포됨.
+
+### 배포 전에 처리한 보안 문제
+
+이 대시보드는 브라우저에서 anon 키로 Supabase를 직접 읽는 구조라,
+같은 프로젝트에서 anon이 무엇을 할 수 있는지 점검했다.
+
+`slbs-d2c-dashboard` 프로젝트의 `SECURITY DEFINER` 함수 2개에
+PostgreSQL 기본 `PUBLIC` EXECUTE 권한이 남아 있어 anon 키로 호출이 가능했다.
+SECURITY DEFINER 함수는 RLS를 우회하므로, 테이블이 잠겨 있어도 데이터가 나온다.
+
+- `realtime_products(date, date, text[])` — 상품별 실판매 수량·매출액이 그대로 반환됨
+- `trigger_ingest(text, integer, text)` — 적재 파이프라인을 실행시키는 함수
+
+두 함수 모두 D2C 대시보드의 서버 코드(`api/daily.js`, `api/sync.js`)에서
+**service_role 키로만** 호출되고 클라이언트는 Supabase를 직접 호출하지 않으므로,
+공개 권한을 회수해도 기존 대시보드는 영향이 없음을 확인한 뒤 회수했다.
+같은 프로젝트의 나머지 SECURITY DEFINER 함수 5개는 이미 같은 상태였다.
+
+```sql
+revoke execute on function public.realtime_products(date, date, text[]) from public, anon, authenticated;
+revoke execute on function public.trigger_ingest(text, integer, text) from public, anon, authenticated;
+grant  execute on function public.realtime_products(date, date, text[]) to service_role;
+grant  execute on function public.trigger_ingest(text, integer, text) to service_role;
+```
+
+되돌리려면 위 `revoke` 대상에 다시 `grant execute ... to anon, authenticated;` 하면 된다.
+
+앞으로 이 프로젝트에 SECURITY DEFINER 함수를 새로 만들 때는
+`revoke execute on function ... from public;` 를 같이 실행할 것.

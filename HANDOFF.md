@@ -1,0 +1,68 @@
+# Claude Code 인계 문서 — 캐릭터 마켓 레이더 초기 셋업
+
+이 폴더는 Claude.ai에서 생성한 완성 코드입니다. 아래 순서대로 셋업을 진행해 주세요.
+사용자(Danny)는 비개발자이므로 각 단계에서 확인이 필요한 값은 직접 물어봐 주세요.
+
+## 배경
+
+- 기존 `naverShopCrawler.ipynb`(네이버쇼핑 캐릭터 상품 수집 → 엑셀 리포트)를
+  다중 키워드 + Supabase + Vercel 대시보드 구조로 재구축한 것
+- 기존 노트북의 버그 수정 완료: pagingIndex 고정, 0 나눗셈, 쉼표 파싱, 캐릭터 매칭 순서
+- 사용자 환경: Windows PC, Vercel 계정 wacandacat(Hobby), 기존 프로젝트들과 동일 패턴
+
+## 1. GitHub 레포
+
+- 새 private 레포 생성: `WacandaCat/slbs-market-crawler`
+- 이 폴더 전체를 커밋 (`crawler/config.py` 는 .gitignore로 제외됨 — 확인할 것)
+- 커밋 author는 반드시 `Danny <daniel29park@gmail.com>` (Vercel 자동배포 이슈 방지, 기존 규칙)
+
+## 2. Supabase
+
+- 기존 Supabase 계정에 새 프로젝트 생성 또는 기존 프로젝트 사용 (사용자에게 확인)
+- SQL Editor에서 순서대로 실행:
+  1. `db/schema.sql` (테이블 4개 + RLS 읽기전용 정책 + 기본 키워드 1개)
+  2. `db/seed_character_dict.sql` (캐릭터 사전 48개 토큰)
+- `crawl_keywords` 테이블에 사용자가 원하는 키워드 추가 (예: 기종별 케이스 키워드)
+
+## 3. 크롤러 설정 (사용자 PC)
+
+- `crawler/config.example.py` → `crawler/config.py` 복사
+- SUPABASE_URL, SUPABASE_SERVICE_KEY(service_role) 입력
+- Python 설치 여부 확인, 없으면 설치 안내
+- `run_crawler.bat` 더블클릭으로 테스트 실행 → Supabase에 데이터 들어가는지 확인
+- 주의: 네이버 CSS 선택자(해시 클래스명)는 시점에 따라 깨질 수 있음.
+  수집 0건이면 실제 페이지 구조를 확인해서 `crawler.py`의 선택자를 업데이트할 것
+
+## 4. Vercel
+
+- 정적 사이트 (빌드 불필요, 루트 index.html)
+- 레포 연결 후 `config.js` 에 SUPABASE_URL과 anon 키 입력 후 커밋
+- 배포는 항상 `git push` 방식 (Vercel CLI 토큰은 읽기전용 — 기존 규칙)
+- 배포 확인 후 사용자에게 서브도메인 연결 의사 확인 (예: `radar.slbs.shop`)
+
+## 5. 완료 확인 체크리스트
+
+- [ ] 크롤러 실행 → crawl_runs / crawl_items에 데이터 적재
+- [ ] 대시보드에서 수집 회차 선택, 키워드 필터, 캐릭터 순위, 미분류 목록 표시
+- [ ] 숫자가 쉼표 포함 전체 표기로 나오는지 (사용자 표준)
+- [ ] 시크릿 창에서 최종 확인 (사용자 습관)
+
+## 이후 확장 아이디어 (지금은 구현하지 말 것)
+
+- 회차 간 비교 (지난 수집 대비 순위 변동)
+- 캐릭터 사전을 대시보드에서 직접 편집 (인증 필요)
+- 수집 자동화 (작업 스케줄러) — 네이버 차단 리스크 검토 후
+
+---
+
+## 셋업 진행 기록 (Claude Code)
+
+- **1. GitHub 레포** — 완료. Danny가 `WacandaCat/slbs-market-crawler` 를 생성,
+  Claude Code가 전체 파일을 커밋·푸시.
+- **index.html 관련 참고** — Dropbox에서 원본 HTML 소스를 그대로 내려받을 수 없어
+  (텍스트 추출 시 태그가 제거됨) 대시보드를 동일 사양으로 새로 작성함.
+  기능은 인계 문서 기준 그대로: 수집 회차 선택, 키워드 필터, 캐릭터 판매지수 순위,
+  미분류 상위 상품, 정렬 가능한 상품 목록, 쉼표 포함 전체 숫자 표기.
+- **2. Supabase** — 대기 중. 무료 플랜은 조직당 프로젝트 2개까지인데
+  `slbs-d2c-dashboard`, `WacandaCat's Project` 로 이미 2개가 차 있어
+  새 프로젝트를 만들 수 없음. Danny의 결정 필요.

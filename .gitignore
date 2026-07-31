@@ -1,0 +1,5 @@
+crawler/config.py
+crawler/output/
+__pycache__/
+*.pyc
+.DS_Store

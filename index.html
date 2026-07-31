@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>캐릭터 마켓 레이더 · SLBS</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --line: #e4e7ec;
+    --text: #16191d;
+    --muted: #6b7280;
+    --accent: #2f6fed;
+    --accent-soft: #e8effd;
+    --warn: #b45309;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --panel: #1c1f24;
+      --line: #2d323a;
+      --text: #eceef1;
+      --muted: #9aa2ad;
+      --accent: #6f9bff;
+      --accent-soft: #23304a;
+      --warn: #f0b45f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic",
+                 "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 64px; }
+
+  header h1 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;
+    margin: 22px 0 20px; padding: 16px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: var(--radius);
+  }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  select {
+    min-width: 220px; padding: 8px 10px; font: inherit; color: var(--text);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .run-meta { margin-left: auto; font-size: 12px; color: var(--muted); text-align: right; }
+
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 780px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+  .tile {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 14px 16px;
+  }
+  .tile .k { font-size: 12px; color: var(--muted); }
+  .tile .v { font-size: 24px; font-weight: 650; letter-spacing: -0.02em; margin-top: 4px; }
+  .tile .v.sm { font-size: 18px; }
+
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+  @media (max-width: 900px) { .cards { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px;
+  }
+  .card h2 { margin: 0; font-size: 15px; }
+  .card .sub { margin: 4px 0 14px; font-size: 12px; color: var(--muted); }
+
+  .rank { display: flex; flex-direction: column; gap: 9px; }
+  .rank-row { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; }
+  .rank-row .no { font-size: 12px; color: var(--muted); text-align: right; }
+  .rank-row .name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rank-row .val { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .bar { grid-column: 2 / 4; height: 5px; background: var(--accent-soft); border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .table-scroll { overflow-x: auto; }
+  th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--panel); }
+  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  th .arrow { opacity: 0.45; font-size: 10px; margin-left: 3px; }
+  td.name { white-space: normal; min-width: 320px; max-width: 520px; }
+  .chip {
+    display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .chip.etc { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+
+  .more {
+    display: block; width: 100%; margin-top: 14px; padding: 10px; font: inherit;
+    color: var(--text); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; cursor: pointer;
+  }
+  .more:hover { border-color: var(--accent); color: var(--accent); }
+  .more[hidden] { display: none; }
+
+  .state { padding: 56px 20px; text-align: center; color: var(--muted); }
+  .state strong { display: block; color: var(--text); font-size: 15px; margin-bottom: 6px; }
+  .state code { background: var(--accent-soft); color: var(--accent); padding: 2px 6px; border-radius: 5px; }
+  .hidden { display: none; }
+  .err { color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>캐릭터 마켓 레이더</h1>
+    <p>네이버쇼핑 검색 데이터 기반 캐릭터 IP 판매지수 · SLBS</p>
+  </header>
+
+  <div class="controls" id="controls" hidden>
+    <div class="field">
+      <label for="runSelect">수집 회차</label>
+      <select id="runSelect"></select>
+    </div>
+    <div class="field">
+      <label for="kwSelect">키워드</label>
+      <select id="kwSelect"></select>
+    </div>
+    <div class="run-meta" id="runMeta"></div>
+  </div>
+
+  <div class="state" id="loading">
+    <strong>데이터를 불러오는 중입니다</strong>
+    잠시만 기다려 주세요.
+  </div>
+
+  <div class="state hidden" id="empty">
+    <strong>아직 수집된 데이터가 없습니다</strong>
+    PC에서 <code>run_crawler.bat</code> 을 실행하면 결과가 이곳에 표시됩니다.
+  </div>
+
+  <div class="state hidden err" id="error">
+    <strong>데이터를 불러오지 못했습니다</strong>
+    <span id="errorMsg"></span>
+  </div>
+
+  <main id="dash" class="hidden">
+    <section class="tiles">
+      <div class="tile"><div class="k">수집 상품</div><div class="v" id="tItems">-</div></div>
+      <div class="tile"><div class="k">캐릭터 분류율</div><div class="v" id="tRate">-</div></div>
+      <div class="tile"><div class="k">등장 캐릭터</div><div class="v" id="tChars">-</div></div>
+      <div class="tile"><div class="k">1위 캐릭터</div><div class="v sm" id="tTop">-</div></div>
+    </section>
+
+    <section class="cards">
+      <div class="card">
+        <h2>캐릭터 판매지수 순위</h2>
+        <p class="sub">point = 리뷰 수 ÷ 판매개월수 의 캐릭터별 합산 (리뷰 축적 속도)</p>
+        <div class="rank" id="rankList"></div>
+      </div>
+      <div class="card">
+        <h2>미분류 상위 상품</h2>
+        <p class="sub">리뷰가 많은데 캐릭터 사전에 없는 상품 — 사전 보강 후보</p>
+        <div class="rank" id="etcList"></div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:12px">
+      <h2>상품 목록</h2>
+      <p class="sub">열 제목을 누르면 정렬됩니다 · <span id="tableCount"></span></p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr id="thead"></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <button class="more" id="moreBtn">더 보기</button>
+    </section>
+  </main>
+
+</div>
+
+<script src="config.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var CFG = window.DASH_CONFIG || {};
+  var PAGE_SIZE = 50;
+  var FETCH_CHUNK = 1000;
+
+  var el = function (id) { return document.getElementById(id); };
+
+  // 숫자는 항상 쉼표 포함 전체 표기 (축약 없음)
+  function num(v) {
+    if (v === null || v === undefined || v === "") return "-";
+    var n = Number(v);
+    return isNaN(n) ? "-" : n.toLocaleString("ko-KR");
+  }
+  function dec(v, digits) {
+    if (v === null || v === undefined || v === "") return "-";
+    var n = Number(v);
+    if (isNaN(n)) return "-";
+    return n.toLocaleString("ko-KR", {
+      minimumFractionDigits: digits, maximumFractionDigits: digits
+    });
+  }
+  function esc(s) {
+    return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function fmtRunAt(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    var p = function (n) { return String(n).padStart(2, "0"); };
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+           " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+
+  function api(path, params, headers) {
+    var url = CFG.SUPABASE_URL.replace(/\/+$/, "") + "/rest/v1/" + path;
+    var qs = Object.keys(params || {}).map(function (k) {
+      return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]);
+    }).join("&");
+    if (qs) url += "?" + qs;
+
+    var h = { apikey: CFG.SUPABASE_ANON_KEY, Authorization: "Bearer " + CFG.SUPABASE_ANON_KEY };
+    Object.keys(headers || {}).forEach(function (k) { h[k] = headers[k]; });
+
+    return fetch(url, { headers: h }).then(function (res) {
+      if (!res.ok) {
+        return res.text().then(function (t) {
+          throw new Error("Supabase " + res.status + ": " + t.slice(0, 200));
+        });
+      }
+      return res.json();
+    });
+  }
+
+  // 회차 전체 상품을 1000건씩 나눠서 모두 가져옴
+  function fetchAllItems(runId) {
+    var out = [];
+    function next(from) {
+      return api("crawl_items", {
+        run_id: "eq." + runId,
+        select: "keyword,product_name,rating,reviews,purchases,wishes,reg_date,months_on_sale,point,character_name",
+        order: "id.asc"
+      }, { Range: from + "-" + (from + FETCH_CHUNK - 1) }).then(function (rows) {
+        out = out.concat(rows);
+        if (rows.length < FETCH_CHUNK) return out;
+        return next(from + FETCH_CHUNK);
+      });
+    }
+    return next(0);
+  }
+
+  // ---------- 상태 ----------
+  var state = {
+    items: [],        // 현재 회차 전체
+    view: [],         // 키워드 필터 적용 결과
+    sortKey: "point",
+    sortDir: -1,
+    shown: PAGE_SIZE
+  };
+
+  var COLUMNS = [
+    { key: "product_name",  label: "상품명",     type: "text" },
+    { key: "character_name",label: "캐릭터",     type: "chip" },
+    { key: "keyword",       label: "키워드",     type: "text" },
+    { key: "point",         label: "판매지수",   type: "dec2" },
+    { key: "reviews",       label: "리뷰",       type: "num" },
+    { key: "purchases",     label: "구매",       type: "num" },
+    { key: "wishes",        label: "찜",         type: "num" },
+    { key: "rating",        label: "별점",       type: "dec1" },
+    { key: "months_on_sale",label: "판매개월",   type: "num" },
+    { key: "reg_date",      label: "등록일",     type: "text" }
+  ];
+
+  // ---------- 렌더 ----------
+  function renderTiles() {
+    var rows = state.view;
+    var classified = rows.filter(function (r) { return r.character_name !== "기타"; });
+    var rate = rows.length ? (classified.length / rows.length) * 100 : 0;
+
+    var sums = characterSums(rows);
+    el("tItems").textContent = num(rows.length) + "건";
+    el("tRate").textContent = dec(rate, 1) + "%";
+    el("tChars").textContent = num(sums.length) + "개";
+    el("tTop").textContent = sums.length ? sums[0].name : "-";
+  }
+
+  function characterSums(rows) {
+    var map = Object.create(null);
+    rows.forEach(function (r) {
+      if (r.character_name === "기타") return;
+      var p = Number(r.point);
+      if (isNaN(p)) p = 0;
+      if (!map[r.character_name]) map[r.character_name] = { name: r.character_name, point: 0, count: 0 };
+      map[r.character_name].point += p;
+      map[r.character_name].count += 1;
+    });
+    return Object.keys(map).map(function (k) { return map[k]; })
+      .sort(function (a, b) { return b.point - a.point; });
+  }
+
+  function renderRank() {
+    var sums = characterSums(state.view).slice(0, 15);
+    var max = sums.length ? sums[0].point : 0;
+    el("rankList").innerHTML = sums.length ? sums.map(function (c, i) {
+      var w = max > 0 ? (c.point / max) * 100 : 0;
+      return '<div class="rank-row">' +
+               '<div class="no">' + (i + 1) + '</div>' +
+               '<div class="name" title="' + esc(c.name) + '">' + esc(c.name) +
+                 ' <span style="color:var(--muted);font-size:12px">· ' + num(c.count) + '건</span></div>' +
+               '<div class="val">' + dec(c.point, 1) + '</div>' +
+               '<div class="bar"><i style="width:' + w.toFixed(2) + '%"></i></div>' +
+             '</div>';
+    }).join("") : '<p class="sub">분류된 캐릭터가 없습니다.</p>';
+  }
+
+  function renderEtc() {
+    var etc = state.view.filter(function (r) { return r.character_name === "기타"; })
+      .sort(function (a, b) { return (Number(b.reviews) || 0) - (Number(a.reviews) || 0); })
+      .slice(0, 12);
+    el("etcList").innerHTML = etc.length ? etc.map(function (r, i) {
+      return '<div class="rank-row">' +
+               '<div class="no">' + (i + 1) + '</div>' +
+               '<div class="name" title="' + esc(r.product_name) + '">' + esc(r.product_name) + '</div>' +
+               '<div class="val">리뷰 ' + num(r.reviews) + '</div>' +
+             '</div>';
+    }).join("") : '<p class="sub">미분류 상품이 없습니다.</p>';
+  }
+
+  function renderTable() {
+    el("thead").innerHTML = COLUMNS.map(function (c) {
+      var isNum = c.type !== "text" && c.type !== "chip";
+      var arrow = state.sortKey === c.key ? (state.sortDir === 1 ? "▲" : "▼") : "";
+      return '<th class="' + (isNum ? "num" : "") + '" data-key="' + c.key + '">' +
+             esc(c.label) + '<span class="arrow">' + arrow + '</span></th>';
+    }).join("");
+
+    var rows = state.view.slice().sort(compare);
+    var slice = rows.slice(0, state.shown);
+
+    el("tbody").innerHTML = slice.map(function (r) {
+      return "<tr>" + COLUMNS.map(function (c) {
+        var v = r[c.key];
+        if (c.type === "num")  return '<td class="num">' + num(v) + "</td>";
+        if (c.type === "dec1") return '<td class="num">' + dec(v, 1) + "</td>";
+        if (c.type === "dec2") return '<td class="num">' + dec(v, 2) + "</td>";
+        if (c.type === "chip") {
+          var cls = v === "기타" ? "chip etc" : "chip";
+          return "<td><span class='" + cls + "'>" + esc(v) + "</span></td>";
+        }
+        var cell = (v === null || v === undefined || v === "") ? "-" : esc(v);
+        return '<td class="' + (c.key === "product_name" ? "name" : "") + '">' + cell + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+
+    el("tableCount").textContent =
+      num(Math.min(state.shown, rows.length)) + " / " + num(rows.length) + "건 표시";
+    el("moreBtn").hidden = state.shown >= rows.length;
+  }
+
+  function compare(a, b) {
+    var k = state.sortKey, d = state.sortDir;
+    var va = a[k], vb = b[k];
+    var na = Number(va), nb = Number(vb);
+    var numeric = va !== null && vb !== null && !isNaN(na) && !isNaN(nb) &&
+                  k !== "product_name" && k !== "character_name" && k !== "keyword" && k !== "reg_date";
+    if (numeric) return (na - nb) * d;
+    if (va === null || va === undefined || va === "") return 1;
+    if (vb === null || vb === undefined || vb === "") return -1;
+    return String(va).localeCompare(String(vb), "ko") * d;
+  }
+
+  function renderAll() {
+    renderTiles(); renderRank(); renderEtc(); renderTable();
+  }
+
+  function applyKeyword() {
+    var kw = el("kwSelect").value;
+    state.view = kw === "__all__" ? state.items
+      : state.items.filter(function (r) { return r.keyword === kw; });
+    state.shown = PAGE_SIZE;
+    renderAll();
+  }
+
+  // ---------- 초기화 ----------
+  function show(id) {
+    ["loading", "empty", "error", "dash"].forEach(function (x) {
+      el(x).classList.toggle("hidden", x !== id);
+    });
+    el("controls").hidden = (id !== "dash");
+  }
+
+  function fail(msg) {
+    el("errorMsg").textContent = msg;
+    show("error");
+  }
+
+  function loadRun(runId, run) {
+    show("loading");
+    fetchAllItems(runId).then(function (items) {
+      state.items = items;
+
+      var kws = [];
+      items.forEach(function (r) { if (kws.indexOf(r.keyword) === -1) kws.push(r.keyword); });
+      kws.sort(function (a, b) { return a.localeCompare(b, "ko"); });
+      el("kwSelect").innerHTML =
+        '<option value="__all__">전체 (' + num(items.length) + '건)</option>' +
+        kws.map(function (k) {
+          var c = items.filter(function (r) { return r.keyword === k; }).length;
+          return '<option value="' + esc(k) + '">' + esc(k) + " (" + num(c) + "건)</option>";
+        }).join("");
+
+      el("runMeta").innerHTML =
+        "수집 시각 " + esc(fmtRunAt(run.run_at)) + "<br>키워드 " +
+        esc((run.keywords || []).join(", "));
+
+      show("dash");
+      applyKeyword();
+    }).catch(function (e) { fail(e.message); });
+  }
+
+  function init() {
+    if (!CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY ||
+        CFG.SUPABASE_URL.indexOf("xxxxxxxx") !== -1) {
+      return fail("config.js 에 Supabase 주소와 anon 키를 넣어 주세요.");
+    }
+
+    el("moreBtn").addEventListener("click", function () {
+      state.shown += PAGE_SIZE;
+      renderTable();
+    });
+
+    el("thead").addEventListener("click", function (e) {
+      var th = e.target.closest("th");
+      if (!th) return;
+      var key = th.getAttribute("data-key");
+      if (state.sortKey === key) state.sortDir *= -1;
+      else { state.sortKey = key; state.sortDir = (key === "product_name" || key === "character_name" || key === "keyword") ? 1 : -1; }
+      state.shown = PAGE_SIZE;
+      renderTable();
+    });
+
+    el("kwSelect").addEventListener("change", applyKeyword);
+
+    api("crawl_runs", { select: "id,run_at,keywords,item_count", order: "run_at.desc", limit: 50 })
+      .then(function (runs) {
+        if (!runs.length) return show("empty");
+        el("runSelect").innerHTML = runs.map(function (r) {
+          return '<option value="' + esc(r.id) + '">' + esc(fmtRunAt(r.run_at)) +
+                 " (" + num(r.item_count) + "건)</option>";
+        }).join("");
+        el("runSelect").addEventListener("change", function () {
+          var id = this.value;
+          var run = runs.filter(function (r) { return r.id === id; })[0];
+          loadRun(id, run);
+        });
+        loadRun(runs[0].id, runs[0]);
+      })
+      .catch(function (e) { fail(e.message); });
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
